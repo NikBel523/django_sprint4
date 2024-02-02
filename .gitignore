@@ -150,3 +150,7 @@ media/
 
 sent_emails/
 
+# Local files
+templates_precode/
+blogicum/static_dev/css
+db.json
