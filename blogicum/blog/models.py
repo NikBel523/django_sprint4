@@ -1,6 +1,5 @@
-from django.db import models
-from django.db.models import Count
 from django.contrib.auth import get_user_model
+from django.db import models
 
 TITLE_MAX_LENGTH = 256
 TITLE_MAX_LENGTH_VIEW = 20
@@ -67,11 +66,6 @@ class Location(BaseModel):
 
     def __str__(self) -> str:
         return self.name[:TITLE_MAX_LENGTH_VIEW]
-
-
-class PostManager(models.Manager):
-    def with_comment_count(self):
-        return self.annotate(comment_count=Count('comments'))
 
 
 class Post(BaseModel):

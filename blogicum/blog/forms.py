@@ -1,4 +1,3 @@
-from typing import Any
 from django import forms
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -22,11 +21,6 @@ class UserEditForm(forms.ModelForm):
 
 class PostForm(forms.ModelForm):
     """Форма для добавления поста."""
-    # pub_date = forms.DateTimeField(
-    #     label='Дата и время публикации',
-    #     validators=[FutureDateTimeValidator()],
-    #     widget=forms.DateTimeInput(attrs={'type': 'datetime-local'}),
-    # )
 
     class Meta:
         model = Post

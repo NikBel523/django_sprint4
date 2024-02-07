@@ -1,52 +1,18 @@
-from typing import Any
-from django.core.paginator import Paginator
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponseForbidden
-
-
+from django.core.paginator import Paginator
+from django.http import Http404
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
+from django.urls import reverse
 from django.views.generic import (
     CreateView, DeleteView, DetailView, ListView, UpdateView
 )
-from django.urls import reverse
-from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
 
-from .forms import CommentForm, PostForm, UserEditForm
+from .forms import CommentForm, UserEditForm
+from .mixins import AlterPostViewMixin, BasicPostViewMixin, CreatePostViewMixin
 from .models import Category, Comment, Post, User
-
-
-POSTS_ON_PAGE = 10
-
-
-def base_posts_query(username=None):
-    """Функция отвечающая за формирования основного запроса по постам."""
-    base_query = Post.objects.select_related(
-        'author', 'location', 'category'
-    )
-
-    if username:
-        author_id = User.objects.get(username=username)
-        base_query = base_query.filter(author__exact=author_id.pk)
-    else:
-        base_query = base_query.filter(
-            pub_date__lte=timezone.now(),
-            is_published=True,
-            category__is_published=True,
-        )
-
-    return base_query
-
-
-class BasicPostViewMixin:
-    model = Post
-    queryset = base_posts_query()
-
-
-class AlterPostViewMixin:
-    model = Post
-    form_class = PostForm
-    template_name = 'blog/create.html'
+from .utils import base_posts_query
 
 
 # Классы и функции для управления постами.
@@ -55,27 +21,37 @@ class PostListView(BasicPostViewMixin, ListView):
     """Вид для главной страницы."""
 
     template_name = 'blog/index.html'
-    paginate_by = POSTS_ON_PAGE
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        return queryset
+    paginate_by = settings.POSTS_ON_PAGE
 
 
-class PostDetailView(BasicPostViewMixin, DetailView):
-    """Вид для показа страницы отдельного поста."""
+class PostDetailView(DetailView):
+    """Класс для представления отдельного поста."""
 
     template_name = 'blog/detail.html'
 
-    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
-        context = super().get_context_data(**kwargs)
-        context['form'] = CommentForm()
-        context['comments'] = self.object.comments.select_related('author')
+    def get(self, request, pk):
+        post = get_object_or_404(Post, pk=pk)
 
-        return context
+        if request.user == post.author:
+            context = {
+                'post': post,
+                'form': CommentForm(),
+                'comments': post.comments.select_related('author'),
+            }
+            return render(request, self.template_name, context)
+        elif (post.is_published and post.category.is_published
+              and post.pub_date < timezone.now()):
+            context = {
+                'post': post,
+                'form': CommentForm(),
+                'comments': post.comments.select_related('author'),
+            }
+            return render(request, self.template_name, context)
+        else:
+            raise Http404("Page not found")
 
 
-class PostCreateView(LoginRequiredMixin, AlterPostViewMixin, CreateView):
+class PostCreateView(CreatePostViewMixin, CreateView):
     """Класс для создания поста."""
 
     def form_valid(self, form):
@@ -89,7 +65,7 @@ class PostCreateView(LoginRequiredMixin, AlterPostViewMixin, CreateView):
         return reverse('blog:profile', kwargs={'username': username})
 
 
-class PostUpdateView(LoginRequiredMixin, AlterPostViewMixin, UpdateView):
+class PostUpdateView(AlterPostViewMixin, UpdateView):
     """Класс для изменения поста."""
 
     def get_success_url(self):
@@ -107,7 +83,7 @@ class PostUpdateView(LoginRequiredMixin, AlterPostViewMixin, UpdateView):
         return super().get(request, *args, **kwargs)
 
 
-class PostDeleteView(LoginRequiredMixin, AlterPostViewMixin, DeleteView):
+class PostDeleteView(AlterPostViewMixin, DeleteView):
     """Класс для удаления поста."""
 
     def get_context_data(self, **kwargs):
@@ -135,7 +111,7 @@ class PostByCategoryView(ListView):
 
     model = Post
     template_name = 'blog/category.html'
-    paginate_by = POSTS_ON_PAGE
+    paginate_by = settings.POSTS_ON_PAGE
 
     def get_category(self):
         """Метод для получения конкретной категории."""
@@ -163,6 +139,7 @@ class PostByCategoryView(ListView):
 
 @login_required
 def add_comment(request, pk):
+    """Добавление комментария."""
     post_commented = get_object_or_404(Post, pk=pk)
     form = CommentForm(request.POST)
     if form.is_valid():
@@ -176,10 +153,11 @@ def add_comment(request, pk):
 
 @login_required
 def edit_comment(request, pk_post, pk_comment):
+    """Редактирование комментария."""
     comment = get_object_or_404(Comment, pk=pk_comment)
 
     if request.user != comment.author:
-        return HttpResponseForbidden(render(request, '403.html'))
+        return redirect('blog:post_detail', pk_post)
 
     if request.method == 'POST':
         form = CommentForm(request.POST, instance=comment)
@@ -198,10 +176,13 @@ def edit_comment(request, pk_post, pk_comment):
 
 @login_required
 def delete_comment(request, pk_post, pk_comment):
-
+    """Удаление комментария."""
     instance = get_object_or_404(Comment, pk=pk_comment)
 
     context = {'comment': instance}
+
+    if request.user != instance.author:
+        return redirect('blog:post_detail', pk_post)
 
     if request.method == 'GET':
         return render(request, 'blog/comment.html', context)
@@ -210,28 +191,35 @@ def delete_comment(request, pk_post, pk_comment):
         instance.delete()
         return redirect('blog:post_detail', pk_post)
 
+
 # Функции связанные с пользователем и его профилем.
 
 def user_profile(request, username):
-    profile = get_object_or_404(User.objects.all(), username=username)
-    paginator = Paginator(base_posts_query(username=username), POSTS_ON_PAGE)
+    """Генерация страницы профиля пользователя."""
+    profile_user = get_object_or_404(User, username=username)
+
+    base_query = base_posts_query(username=username)
+
+    if not request.user == profile_user:
+        base_query = base_query.filter(is_published=True)
+
+    paginator = Paginator(base_query, settings.POSTS_ON_PAGE)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
     return render(
         request,
         'blog/profile.html',
-        context={'profile': profile, 'page_obj': page_obj},
+        context={'profile': profile_user, 'page_obj': page_obj},
     )
 
 
-@login_required
+# @login_required
 def edit_profile(request, username):
-
+    """Редактирование профиля пользователя."""
     instance = get_object_or_404(User, username=username)
 
     if request.user != instance:
-        # return HttpResponseForbidden(render(request, '403.html'))
         return redirect(reverse('blog:profile', kwargs={'username': username}))
 
     form = UserEditForm(request.POST or None, instance=instance)
