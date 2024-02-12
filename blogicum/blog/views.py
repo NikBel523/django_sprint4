@@ -1,54 +1,86 @@
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import UserCreationForm
 from django.core.paginator import Paginator
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 from django.views.generic import (
     CreateView, DeleteView, DetailView, ListView, UpdateView
 )
 
-from .forms import CommentForm, UserEditForm
-from .mixins import AlterPostViewMixin, BasicPostViewMixin, CreatePostViewMixin
+from .forms import CommentForm, PostForm, UserEditForm
+from .mixins import (
+    AlterPostViewMixin, CreatePostViewMixin, PaginatePostViewMixin
+)
 from .models import Category, Comment, Post, User
-from .utils import base_posts_query
+from .queries import post_query_default
 
 
 # Классы и функции для управления постами.
 
-class PostListView(BasicPostViewMixin, ListView):
+
+class PostListView(PaginatePostViewMixin, ListView):
     """Вид для главной страницы."""
 
     template_name = 'blog/index.html'
-    paginate_by = settings.POSTS_ON_PAGE
+
+    def get_queryset(self):
+        queryset = post_query_default(filters=True, annotate=True)
+        return queryset
+
+
+class PostByCategoryView(PaginatePostViewMixin, ListView):
+    """Класс для представления постов по категориям."""
+
+    template_name = 'blog/category.html'
+
+    def get_category(self):
+        """Метод для получения конкретной категории."""
+        category_slug = self.kwargs['category_slug']
+        return get_object_or_404(
+            Category,
+            slug=category_slug,
+            is_published=True,
+        )
+
+    def get_queryset(self):
+        """Переопределенный метотд для формирования постов по категории."""
+        return (
+            post_query_default(filters=True, annotate=True)
+            .filter(category=self.get_category())
+        )
+
+    def get_context_data(self, **kwargs):
+        """Переопределенный метотд для передачи категории в контекст."""
+        context = super().get_context_data(**kwargs)
+        category = self.get_category()
+        context['category'] = category
+        return context
 
 
 class PostDetailView(DetailView):
     """Класс для представления отдельного поста."""
 
+    model = Post
     template_name = 'blog/detail.html'
 
-    def get(self, request, pk):
-        post = get_object_or_404(Post, pk=pk)
-
-        if request.user == post.author:
-            context = {
-                'post': post,
-                'form': CommentForm(),
-                'comments': post.comments.select_related('author'),
-            }
-            return render(request, self.template_name, context)
-        elif (post.is_published and post.category.is_published
-              and post.pub_date < timezone.now()):
-            context = {
-                'post': post,
-                'form': CommentForm(),
-                'comments': post.comments.select_related('author'),
-            }
-            return render(request, self.template_name, context)
+    def get_object(self):
+        post_id = self.kwargs.get('post_id')
+        post = get_object_or_404(Post, pk=post_id)
+        if (self.request.user == post.author
+            or (post.is_published and post.category.is_published
+                and post.pub_date < timezone.now())):
+            return post
         else:
             raise Http404("Page not found")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['form'] = CommentForm()
+        context['comments'] = self.object.comments.select_related('author')
+        return context
 
 
 class PostCreateView(CreatePostViewMixin, CreateView):
@@ -70,17 +102,7 @@ class PostUpdateView(AlterPostViewMixin, UpdateView):
 
     def get_success_url(self):
         """Редирект на измененный пост."""
-        return reverse('blog:post_detail', kwargs={'pk': self.object.id})
-
-    def test_func(self):
-        post = self.get_object()
-        return self.request.user == post.author
-
-    def get(self, request, *args, **kwargs):
-        self.object = self.get_object()
-        if not self.test_func():
-            return redirect('blog:post_detail', pk=self.object.id)
-        return super().get(request, *args, **kwargs)
+        return reverse('blog:post_detail', kwargs={'post_id': self.object.id})
 
 
 class PostDeleteView(AlterPostViewMixin, DeleteView):
@@ -88,82 +110,42 @@ class PostDeleteView(AlterPostViewMixin, DeleteView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['data'] = self.get_object()
+        context['form'] = PostForm(instance=self.object)
         return context
 
     def get_success_url(self):
         username = self.request.user.username
         return reverse('blog:profile', kwargs={'username': username})
 
-    def get(self, request, *args, **kwargs):
-        self.object = self.get_object()
-        form = self.form_class(instance=self.object)
-        context = self.get_context_data(
-            object=self.object,
-            form=form,
-            instance=form.instance,
-        )
-        return self.render_to_response(context)
-
-
-class PostByCategoryView(ListView):
-    """Класс для представления постов по категориям."""
-
-    model = Post
-    template_name = 'blog/category.html'
-    paginate_by = settings.POSTS_ON_PAGE
-
-    def get_category(self):
-        """Метод для получения конкретной категории."""
-        category_slug = self.kwargs['category_slug']
-        return get_object_or_404(
-            Category,
-            slug=category_slug,
-            is_published=True,
-        )
-
-    def get_queryset(self):
-        """Переопределенный метотд для формирования постов по категории."""
-        category = self.get_category()
-        return base_posts_query().filter(category=category)
-
-    def get_context_data(self, **kwargs):
-        """Переопределенный метотд для передачи категории в контекст."""
-        context = super().get_context_data(**kwargs)
-        category = self.get_category()
-        context['category'] = category
-        return context
-
 
 # Функции управления комментарими.
 
 @login_required
-def add_comment(request, pk):
+def add_comment(request, post_id):
     """Добавление комментария."""
-    post_commented = get_object_or_404(Post, pk=pk)
+    post = get_object_or_404(Post, pk=post_id)
     form = CommentForm(request.POST)
     if form.is_valid():
         comment = form.save(commit=False)
         comment.author = request.user
-        comment.post_commented = post_commented
+        comment.post = post
         comment.save()
 
-    return redirect('blog:post_detail', pk=pk)
+    return redirect('blog:post_detail', post_id)
 
 
 @login_required
-def edit_comment(request, pk_post, pk_comment):
+def edit_comment(request, post_id, comment_id):
     """Редактирование комментария."""
-    comment = get_object_or_404(Comment, pk=pk_comment)
+    comment = get_object_or_404(Comment, pk=comment_id)
+    form = CommentForm(request.POST or None, instance=comment)
 
     if request.user != comment.author:
-        return redirect('blog:post_detail', pk_post)
+        return redirect('blog:post_detail', post_id)
 
-    if request.method == 'POST':
-        form = CommentForm(request.POST, instance=comment)
-        if form.is_valid():
-            form.save()
-            return redirect('blog:post_detail', pk_post)
+    if form.is_valid():
+        form.save()
+        return redirect('blog:post_detail', post_id)
     else:
         form = CommentForm(instance=comment)
 
@@ -175,21 +157,21 @@ def edit_comment(request, pk_post, pk_comment):
 
 
 @login_required
-def delete_comment(request, pk_post, pk_comment):
+def delete_comment(request, post_id, comment_id):
     """Удаление комментария."""
-    instance = get_object_or_404(Comment, pk=pk_comment)
+    instance = get_object_or_404(Comment, pk=comment_id, post=post_id)
 
     context = {'comment': instance}
 
     if request.user != instance.author:
-        return redirect('blog:post_detail', pk_post)
+        return redirect('blog:post_detail', post_id)
 
     if request.method == 'GET':
         return render(request, 'blog/comment.html', context)
 
     elif request.method == 'POST':
         instance.delete()
-        return redirect('blog:post_detail', pk_post)
+        return redirect('blog:post_detail', post_id)
 
 
 # Функции связанные с пользователем и его профилем.
@@ -197,11 +179,15 @@ def delete_comment(request, pk_post, pk_comment):
 def user_profile(request, username):
     """Генерация страницы профиля пользователя."""
     profile_user = get_object_or_404(User, username=username)
-
-    base_query = base_posts_query(username=username)
-
-    if not request.user == profile_user:
-        base_query = base_query.filter(is_published=True)
+    manager = Post.objects.filter(author__exact=profile_user.pk)
+    if request.user != profile_user:
+        base_query = post_query_default(
+            manager=manager,
+            filters=True,
+            annotate=True,
+        )
+    else:
+        base_query = post_query_default(manager=manager, annotate=True)
 
     paginator = Paginator(base_query, settings.POSTS_ON_PAGE)
     page_number = request.GET.get('page')
@@ -214,7 +200,7 @@ def user_profile(request, username):
     )
 
 
-# @login_required
+@login_required
 def edit_profile(request, username):
     """Редактирование профиля пользователя."""
     instance = get_object_or_404(User, username=username)
@@ -230,3 +216,13 @@ def edit_profile(request, username):
 
     context = {'form': form}
     return render(request, 'blog/user.html', context)
+
+
+# Класс для формирования страницы регистрации
+
+class UserCreateView(CreateView):
+    """Регистрация пользователя."""
+
+    template_name = 'registration/registration_form.html',
+    form_class = UserCreationForm,
+    success_url = reverse_lazy('pages:rules')

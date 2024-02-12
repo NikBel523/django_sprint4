@@ -1,14 +1,6 @@
 from django import forms
-from django.core.exceptions import ValidationError
-from django.utils import timezone
 
 from .models import Comment, Post, User
-
-
-class FutureDateTimeValidator:
-    def __call__(self, value):
-        if value < timezone.now():
-            raise ValidationError('Нельзя выложить пост из прошлого.')
 
 
 class UserEditForm(forms.ModelForm):
@@ -25,10 +17,13 @@ class PostForm(forms.ModelForm):
     class Meta:
         model = Post
         fields = '__all__'
-        exclude = ('author', 'is_published',)
+        exclude = ('author',)
 
         widgets = {
-            'pub_date': forms.DateTimeInput(attrs={'type': 'datetime-local'}),
+            'pub_date': forms.DateTimeInput(
+                format='%Y-%m-%dT%H:%M',
+                attrs={'type': 'datetime-local'},
+            ),
         }
 
 

@@ -101,10 +101,6 @@ class Post(BaseModel):
     )
     image = models.ImageField('Фото', upload_to='posts_images', blank=True)
 
-    @property
-    def comment_count(self):
-        return self.comments.count()
-
     class Meta:
         verbose_name = 'публикация'
         verbose_name_plural = 'Публикации'
@@ -119,7 +115,7 @@ class Comment(models.Model):
     """Модель для пользовательских комментариев."""
 
     text = models.TextField(verbose_name='Текст')
-    post_commented = models.ForeignKey(
+    post = models.ForeignKey(
         Post,
         on_delete=models.CASCADE,
         verbose_name='Комментируемый пост',
@@ -141,4 +137,4 @@ class Comment(models.Model):
         default_related_name = 'comments'
 
     def __str__(self) -> str:
-        return self.title[:TITLE_MAX_LENGTH_VIEW]
+        return self.text[:TITLE_MAX_LENGTH_VIEW]

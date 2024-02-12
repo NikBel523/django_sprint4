@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Category, Location, Post
+from .models import Category, Comment, Location, Post
 
 admin.site.empty_value_display = 'Не здано'
 
@@ -41,6 +41,16 @@ class CategoryAdmin(admin.ModelAdmin):
     list_per_page = 10
 
 
+class CategoryComment(admin.ModelAdmin):
+    list_display = (
+        'text',
+        'post',
+        'author',
+        'created_at',
+    )
+
+
 admin.site.register(Location)
+admin.site.register(Comment, CategoryComment)
 admin.site.register(Category, CategoryAdmin)
 admin.site.register(Post, PostAdmin)
