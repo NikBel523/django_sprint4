@@ -154,4 +154,4 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 POSTS_ON_PAGE = 10
 
-CSRF_FAILURE_VIEW = 'pages.views.csrf_failure' 
+CSRF_FAILURE_VIEW = 'pages.views.csrf_failure'
