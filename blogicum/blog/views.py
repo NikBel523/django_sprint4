@@ -48,8 +48,11 @@ class PostByCategoryView(PaginatePostViewMixin, ListView):
     def get_queryset(self):
         """Переопределенный метотд для формирования постов по категории."""
         return (
-            post_query_default(filters=True, annotate=True)
-            .filter(category=self.get_category())
+            post_query_default(
+                manager=self.get_category().posts,
+                filters=True,
+                annotate=True,
+            )
         )
 
     def get_context_data(self, **kwargs):
@@ -73,8 +76,7 @@ class PostDetailView(DetailView):
             or (post.is_published and post.category.is_published
                 and post.pub_date < timezone.now())):
             return post
-        else:
-            raise Http404("Page not found")
+        raise Http404("Page not found")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -138,16 +140,15 @@ def add_comment(request, post_id):
 def edit_comment(request, post_id, comment_id):
     """Редактирование комментария."""
     comment = get_object_or_404(Comment, pk=comment_id)
-    form = CommentForm(request.POST or None, instance=comment)
 
     if request.user != comment.author:
         return redirect('blog:post_detail', post_id)
 
+    form = CommentForm(request.POST or None, instance=comment)
+
     if form.is_valid():
         form.save()
         return redirect('blog:post_detail', post_id)
-    else:
-        form = CommentForm(instance=comment)
 
     return render(
         request,
@@ -179,15 +180,17 @@ def delete_comment(request, post_id, comment_id):
 def user_profile(request, username):
     """Генерация страницы профиля пользователя."""
     profile_user = get_object_or_404(User, username=username)
-    manager = Post.objects.filter(author__exact=profile_user.pk)
     if request.user != profile_user:
         base_query = post_query_default(
-            manager=manager,
+            manager=profile_user.posts,
             filters=True,
             annotate=True,
         )
     else:
-        base_query = post_query_default(manager=manager, annotate=True)
+        base_query = post_query_default(
+            manager=profile_user.posts,
+            annotate=True,
+        )
 
     paginator = Paginator(base_query, settings.POSTS_ON_PAGE)
     page_number = request.GET.get('page')
@@ -201,18 +204,16 @@ def user_profile(request, username):
 
 
 @login_required
-def edit_profile(request, username):
+def edit_profile(request):
     """Редактирование профиля пользователя."""
-    instance = get_object_or_404(User, username=username)
-
-    if request.user != instance:
-        return redirect(reverse('blog:profile', kwargs={'username': username}))
-
-    form = UserEditForm(request.POST or None, instance=instance)
+    form = UserEditForm(request.POST or None, instance=request.user)
 
     if form.is_valid():
         form.save()
-        return redirect(reverse('blog:profile', kwargs={'username': username}))
+        return redirect(reverse(
+            'blog:profile',
+            kwargs={'username': request.user},
+        ))
 
     context = {'form': form}
     return render(request, 'blog/user.html', context)

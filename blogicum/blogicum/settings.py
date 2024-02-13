@@ -153,3 +153,5 @@ EMAIL_FILE_PATH = BASE_DIR / 'sent_emails'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 POSTS_ON_PAGE = 10
+
+CSRF_FAILURE_VIEW = 'pages.views.csrf_failure' 

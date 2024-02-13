@@ -44,21 +44,6 @@ posts_urls = [
     ),
 ]
 
-# Пути для работы с профилем
-
-profile_urls = [
-    path(
-        '<slug:username>/',
-        views.user_profile,
-        name='profile',
-    ),
-    path(
-        '<str:username>/edit/',
-        views.edit_profile,
-        name='edit_profile',
-    ),
-]
-
 # Общие пути приложения blog
 
 urlpatterns = [
@@ -74,5 +59,14 @@ urlpatterns = [
         views.PostByCategoryView.as_view(),
         name='category_posts'
     ),
-    path('profile/', include(profile_urls)),
+    path(
+        'profile/<slug:username>/',
+        views.user_profile,
+        name='profile',
+    ),
+    path(
+        'profile-edit/edit/',
+        views.edit_profile,
+        name='edit_profile',
+    ),
 ]

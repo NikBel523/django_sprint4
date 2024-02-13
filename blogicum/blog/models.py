@@ -47,6 +47,7 @@ class Category(BaseModel):
     class Meta:
         verbose_name = 'категория'
         verbose_name_plural = 'Категории'
+        default_related_name = 'category'
 
     def __str__(self) -> str:
         return self.title[:TITLE_MAX_LENGTH_VIEW]

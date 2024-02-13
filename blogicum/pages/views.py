@@ -25,4 +25,4 @@ def error_view(request, template='pages/500.html'):
 
 
 def csrf_failure(request, reason=''):
-    return render(request, '403csrf.html', status=403)
+    return render(request, 'pages/403csrf.html', status=403)

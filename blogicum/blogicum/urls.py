@@ -13,7 +13,6 @@ urlpatterns = [
 
 handler404 = 'pages.views.page_not_found'
 handler500 = 'pages.views.error_view'
-handler403 = 'pages.views.csrf_failure'
 
 if settings.DEBUG:
     import debug_toolbar
