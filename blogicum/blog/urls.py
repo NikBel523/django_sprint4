@@ -65,7 +65,7 @@ urlpatterns = [
         name='profile',
     ),
     path(
-        'profile-edit/edit/',
+        'profile-edit/',
         views.edit_profile,
         name='edit_profile',
     ),
